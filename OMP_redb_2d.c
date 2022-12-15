@@ -19,29 +19,31 @@ float A [N][N];
 void relax();
 void init();
 void verify();
-
-
 int main(int an, char **as) {
+    int status;
+    double time = omp_get_wtime();
 
-	int it;
-	double time = omp_get_wtime();
+    status = run_read_black_2d();
 
-	init();
+    printf("nThreads = %d\n", omp_get_max_threads());
+    printf("time = %f\n", omp_get_wtime() - time);
+    return status;
+}
 
-	for(it=1; it<=itmax; it++) {
-		eps = 0.;
-		relax();
-		printf( "it=%4i   eps=%f\n", it,eps);
-		if (eps < maxeps)
-			break;
-	}
+int run_read_black_2d(){
+    int it;
+    init();
 
-	verify();
+    for (it = 1; it <= itmax; it++) {
+        eps = 0.;
+        relax();
+        // printf("it=%4i   eps=%f\n", it, eps);
+        if (eps < maxeps) break;
+    }
 
-	printf("nThreads = %d\n", omp_get_max_threads());
-	printf("time = %f\n", omp_get_wtime() - time);
+    verify();
 
-	return 0;
+    return 0;
 }
 
 
