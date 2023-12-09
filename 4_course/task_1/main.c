@@ -2,14 +2,43 @@
 #include <stdlib.h>
 #include <mpi.h>
 #include <time.h>
+#include <unistd.h>
 
-#define MATRIX_SIZE 8
+#define MAX(x, y) x > y ? x : y
+#define UP(coords) \
+    (int[]) { coords[0] - 1, coords[1] }
+#define DOWN(coords) \
+    (int[]) { coords[0] + 1, coords[1] }
+#define RIGHT(coords) \
+    (int[]) { coords[0], coords[1] + 1 }
+#define LEFT(coords) \
+    (int[]) { coords[0], coords[1] - 1 }
+
+#define MATRIX_SIZE 4
+
+MPI_Request send(int *coords, MPI_Comm comm, int *data)
+{
+    int target_rank;
+    MPI_Cart_rank(comm, coords, &target_rank);
+
+    MPI_Request request;
+    MPI_Isend(data, 1, MPI_INT, target_rank, 0, MPI_COMM_WORLD, &request);
+    return request;
+}
+
+int recv(int *coords, MPI_Comm comm)
+{
+    int target_rank;
+    MPI_Cart_rank(comm, coords, &target_rank);
+
+    int data;
+    MPI_Recv(&data, 1, MPI_INT, target_rank, MPI_ANY_TAG, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+    return data;
+}
 
 int main(int argc, char **argv)
 {
     int process_rank, num_processes;
-    int time_start = 100;
-    int time_transfer = 1;
 
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &process_rank);
@@ -23,41 +52,49 @@ int main(int argc, char **argv)
     MPI_Cart_coords(cart_comm, process_rank, 2, coords);
 
     srand(time(NULL) + process_rank);
-    int num = rand() % 100;
+    int num = rand() % 255;
+    printf("--- Number in (%d, %d) = %d\n", coords[0], coords[1], num);
+    sleep(1);
 
-    if (process_rank != 0)
+    int recv_num;
+    if (coords[0] != 0)
     {
-        int dest_coords[2] = {0, 0};
-        int dest_rank;
-        MPI_Cart_rank(cart_comm, dest_coords, &dest_rank);
-        MPI_Send(&num, 1, MPI_INT, dest_rank, 0, cart_comm);
+        if (coords[0] != MATRIX_SIZE - 1)
+        {
+            int *from = DOWN(coords);
+            recv_num = recv(from, cart_comm);
+            // printf("(%d, %d) get %d from (%d, %d)\n", coords[0], coords[1], recv_num, from[0], from[1]);
+            num = MAX(num, recv_num);
+        }
+        int *to = UP(coords);
+        // printf("(%d, %d) send %d to (%d, %d)\n", coords[0], coords[1], recv_num, to[0], to[1]);
+        MPI_Request request = send(to, cart_comm, &num);
+        MPI_Wait(&request, MPI_STATUS_IGNORE);
     }
     else
     {
-        int received_nums[MATRIX_SIZE * MATRIX_SIZE] = {0};
-        received_nums[0] = num;
+        recv_num = recv(DOWN(coords), cart_comm);
+        num = MAX(num, recv_num);
 
-        for (int i = 1; i < num_processes; i++)
+        if (coords[1] != MATRIX_SIZE - 1)
         {
-            int source_coords[2];
-            if (MPI_Recv(&received_nums[i], 1, MPI_INT, MPI_ANY_SOURCE, 0, cart_comm, MPI_STATUS_IGNORE) == MPI_SUCCESS)
-            {
-                MPI_Cart_coords(cart_comm, i, 2, source_coords);
-                printf("Процесс (%d, %d) отправил число %d\n", source_coords[0], source_coords[1], received_nums[i]);
-            }
+            int *from = RIGHT(coords);
+            recv_num = recv(from, cart_comm);
+            // printf("(%d, %d) get %d from (%d, %d)\n", coords[0], coords[1], recv_num, from[0], from[1]);
+            num = MAX(num, recv_num);
         }
 
-        int max_num = received_nums[0];
-        for (int i = 1; i < num_processes; i++)
+        if (coords[1] != 0)
         {
-            if (received_nums[i] > max_num)
-            {
-                max_num = received_nums[i];
-            }
+            int *to = LEFT(coords);
+            // printf("(%d, %d) send %d to (%d, %d)\n", coords[0], coords[1], recv_num, to[0], to[1]);
+            MPI_Request request = send(to, cart_comm, &num);
+            MPI_Wait(&request, MPI_STATUS_IGNORE);
         }
-
-        printf("Максимальное число: %d\n", max_num);
     }
+
+    if (process_rank == 0)
+        printf("\nMax number is %d\n", num);
 
     MPI_Finalize();
     return 0;
